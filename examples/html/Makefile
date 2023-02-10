@@ -1,2 +1,2 @@
 all:
-	g++ main.cpp -I../../include/
+	g++ main.cpp -I../../
