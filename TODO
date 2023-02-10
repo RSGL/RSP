@@ -1,0 +1,12 @@
+- XML Spaces
+- XML random contents
+
+- parsing XML to data
+- parsing JSON to data 
+- rewriting JSON using data
+- rewrite XML using data
+- error handling
+
+- csv support
+- YAML support
+- Markdown support
