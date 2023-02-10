@@ -39,10 +39,6 @@ namespace RSP{
     data parseJSON(std::vector<token> tokens); // parse json data
 }
 
-#define RSP_IMPLEMENTATION
-#include <iostream>
-#warning Delete these
-
 #ifdef RSP_IMPLEMENTATION
 
 RSP::data& RSP::data::operator[](std::string key){ // [] function source
