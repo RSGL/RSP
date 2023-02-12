@@ -1,11 +1,7 @@
-- XML Spaces
-- XML random contents
-
-- parsing XML to data
-- parsing JSON to data 
-- rewriting JSON using data
-- rewrite XML using data
 - error handling
+- add more comments
+- README documentation 
+- XML random contents 
 
 - csv support
 - YAML support
