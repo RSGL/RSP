@@ -1,0 +1,21 @@
+{
+    "version" : 1,
+
+    "member 1" : {
+        "name" : "John",
+        "age" : 52,
+
+        "car" : {
+            "color" : "red"
+        }
+    },
+
+    "member 2" : {
+        "name" : "Bill",
+        "age" : 23,
+
+        "car" : {
+            "color" : "green"
+        }
+    }
+}
