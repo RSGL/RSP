@@ -18,6 +18,20 @@
 * 3. This notice may not be removed or altered from any source distribution.
 */
 
+/*
+MACRO VALUES (add before you include the header)
+
+To link with the source of the functions, simply add the line
+
+#define RSP_IMPLEMENTATION
+
+To mute the code from printing outputs when an error ocours, simply add
+
+#define RSP_QUIET_ERRORS
+*/
+
+#pragma once // File doesn't repeat itself if it included again
+
 #include <string> // std::string
 #include <vector> // std::vector
 #include <map> // std::map
@@ -88,7 +102,7 @@ namespace RSP {
   data parseCSV(std::vector<token> tokens);         // parse csv data
 }
 
-#ifdef RSP_IMPLEMENTATION
+#ifdef RSP_IMPLEMENTATION // If the source is defined or not
 
 RSP::data error = {"RSP-ERROR"}; // error data obj to output in case of errors
 
@@ -99,7 +113,7 @@ RSP::data &RSP::data::operator[](std::string key) {        // [] function source
   if (next[i].key != key) { // the key was not found
     #ifndef RSP_QUIET_ERRORS    
     printf("RSP::data :: Key not found \"%s\"\n", key.c_str()); // print error
-    #endif
+    #endif /*RSP_QUIET_ERRORS*/
 
     error.value = "Key not found"; // the actual error (for checking)
 
@@ -115,12 +129,9 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
 
   std::vector<RSP::token> tokens; // output tokens
 
-  for (int i = 0; i < data.size(); i++)
-  {
-    switch (data[i])
-    {
-    case '<':
-    { // if the data is a <, let's check it
+  for (int i = 0; i < data.size(); i++){ // loop through the data
+    switch (data[i]){
+    case '<': { // if the data is a <, let's check it
       if (data[i + 1] != '!'){                                                // if it has a ! after the <, it's a comment tag, so only check it if it's not a comment
         token t = {data[i + 1] != '/' ? open : close}; // if there is a / after the <, it's a close tag, else it's an open tag
 
@@ -576,8 +587,11 @@ RSP::data RSP::parseJSON(std::vector<RSP::token> tokens){
   if (index.next.size())
     return index[""];
   else{
+    #ifndef RSP_QUIET_ERRORS
     printf("Failed to parse JSON tokens\n");
-    return {};
+    #endif /*RSP_QUIET_ERRORS*/
+
+    return {"RSP-ERROR", "Failed to parse tokens"};
   }
 }
 
@@ -758,4 +772,4 @@ std::string RSP::dumpF(RSP::data d, RSP::format c)
   return output;
 }
 
-#endif
+#endif /*RSP_IMPLEMENTATION*/
