@@ -24,4 +24,17 @@ int main(){
 
     d["member 1"]["age"].value = "19";
     std::cout << "new member 1 age : " << d["member 1"]["age"].value << std::endl;
+
+    std::cout << std::endl << "List : " << std::endl;
+    
+
+    std::cout << d["list"].list.size() << std::endl << std::endl;
+
+    for (auto& d : d["list"].list)
+        std::cout << d.value << std::endl;
+
+    std::cout << d["list"][4][1].value << std::endl;
+    std::cout << d["list"][5].value << std::endl;
+
+    std::cout << "first index of list [\"hi\"]: " << d["list"][0]["hi"].value << std::endl;
 }

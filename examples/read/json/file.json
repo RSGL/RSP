@@ -1,6 +1,12 @@
 {
     "version" : 1,
 
+    "list" : [
+        {"hi": "2"},
+        "hi", 3   , "bye",
+        ["1", "2"], "ok"
+    ],
+
     "member 1" : {
         "name" : "John",
         "age" : 52,
