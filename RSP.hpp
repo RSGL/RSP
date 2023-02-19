@@ -19,60 +19,61 @@
 */
 
 #include <string>
-#include <vector> 
+#include <vector>
 #include <map>
 #include <algorithm>
 
-namespace RSP
-{
-  enum format
-  {
+namespace RSP {
+  enum format {
     XML,
     HTML,
     SVG,
     JSON,
+    CSV,
     GUESS
   }; // format of data, or let the library guess what the proper format is
-  enum tokenType{
+
+  enum tokenType {
     open,
     close,
+    openList,
+    closeList,
     key,
     value,
     content
   }; // token types for tokenizing
 
-  struct token{
+  struct token {
     tokenType t;                             // type
     std::string data;                        // data the token holds
     std::map<std::string, std::string> args; // args
   };                                         // token objects for tokenizing
 
-  struct data{
-    std::string key;   // key (for this data index)
-    std::string value; // value (for this data index)
+  struct data {
+    std::string key;        // key (for this data index)
+    std::string value;      // value (for this data index) (content of tag for XML)
+    std::vector<data> list; // list value, if the value is a list (for JSON), (src list for csv)
 
-    std::vector<data> next; // source vector
-    std::map<std::string, std::string> args; // arguments (for this data index)
+    std::vector<data> next;                  // next data, if there is any
+    std::map<std::string, std::string> args; // arguments (for this data index) (XML only)
 
-    data* prev = NULL;
+    void push(std::string key, std::string value) { next.push_back({key, value}); } // push key/value to next
+    void push(data d) { next.push_back(d); }                                        // push data object to next
+    void pop() { next.pop_back(); }                                                 // remove last object of next
+    bool empty() { return next.empty(); };                                          // returns true if next is empty
+    int size() { return next.size(); };                                             // returns the size of next
 
-    // the stuff you actual want from as a user
-    void push(std::string key, std::string value); // push key/value
-    void push(data d){ next.push_back(d); }
-    void pop(){ next.pop_back(); }
-    bool empty() { return next.empty(); };
-    int size()  { return next.size(); };
-
-    data& operator[](std::string key); // [] function
-  };                                   // data format object (for user)
+    data &operator[](std::string key);                  // [] function
+    data &operator[](int index) { return list[index]; } // [] function for lists
+  };                                                    // data format object (for user)
 
   std::vector<std::string> voidTags;
 
   data loadF(std::string file, format c = GUESS); // load data from file
   data loadS(std::string data, format c = GUESS); // load data from string
 
-  void writeF(std::string file, data d, format c); // load data from file
-  std::string writeS(data d, format ); // load data from string
+  void dumpF(std::string file, data d, format c); // dump data into a file
+  std::string dumpF(data d, format);              // dump data into a string
 
   // these functions are run by the load functions
   std::vector<token> tokenizeXML(std::string data, format c); // tokenize xml data
@@ -80,43 +81,43 @@ namespace RSP
 
   std::vector<token> tokenizeJSON(std::string data); // tokenize json data
   data parseJSON(std::vector<token> tokens);         // parse json data
+
+  std::vector<token> tokenizeCSV(std::string data); // tokenize csv data
+  data parseCSV(std::vector<token> tokens);         // parse csv data
 }
 
 #ifdef RSP_IMPLEMENTATION
 
-RSP::data out;
+RSP::data out; // blank data obj to output in case of errors
 
-RSP::data &RSP::data::operator[](std::string key){        // [] function source
+RSP::data &RSP::data::operator[](std::string key) {        // [] function source
   int i; // index
-  for (i = 0; i < next.size() && next[i].key != key; i++); // find the index of the key
+  for (i = 0; i < next.size() && next[i].key != key; i++)
+    ; // find the index of the key
 
-  if (next[i].key != key){
-    printf("RSP::data :: Key not found \"");
-    printf(key.c_str());
-    printf("\"");
+  if (next[i].key != key)
+  {                                                             // the key was not found
+    printf("RSP::data :: Key not found \"%s\"\n", key.c_str()); // print error
 
-    return out;
+    return out; // return blank obj
   }
 
   return next[i]; // return the srcs that holds the same key
 }
 
-void RSP::data::push(std::string key, std::string value){
-  next.push_back({key, value});
-}
-
 std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
-  if (c == HTML)
-    voidTags = {"area" , "base" , "br" , "col" , "command" , "embed" , "hr" , "img" , "input" , "keygen" , "link" , "meta" , "param" , "source" , "track" , "wbr"};
+  if (c == HTML) // if we're using HTML, fill voidTags with HTML's void tags
+    voidTags = {"area", "base", "br", "col", "command", "embed", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"};
 
-  std::vector<RSP::token> tokens;
+  std::vector<RSP::token> tokens; // output tokens
 
-  for (int i = 0; i < data.size(); i++){
+  for (int i = 0; i < data.size(); i++)
+  {
     switch (data[i])
     {
-    case '<': { // if the data is a <, let's check it
-      if (data[i + 1] != '!')
-      {                                                // if it has a ! after the <, it's a comment tag, so only check it if it's not a comment
+    case '<':
+    { // if the data is a <, let's check it
+      if (data[i + 1] != '!'){                                                // if it has a ! after the <, it's a comment tag, so only check it if it's not a comment
         token t = {data[i + 1] != '/' ? open : close}; // if there is a / after the <, it's a close tag, else it's an open tag
 
         // get the tag's name
@@ -130,12 +131,13 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
         int newI = t.data.find_first_of(">") + ((data[i + 1] != '/') ? 1 : 2) + i;
 
         t.data.replace(t.data.begin() + t.data.find_first_of(">"), t.data.end(), ""); // delete everything after the tag closes (gets the name if there are no args)
-        
+
         int dist = std::distance(voidTags.begin(), std::find(voidTags.begin(), voidTags.end(), t.data));
         bool isVoid = (dist < t.data.size());
 
         // check if there is a space and thereby, if there will be args
-        if (t.data.find_first_of(' ') < t.data.size()){
+        if (t.data.find_first_of(' ') < t.data.size())
+        {
           t.data.replace(t.data.begin() + t.data.find_first_of(' '), t.data.end(), ""); // delete everything after the space to get the name
 
           tokens.push_back(t); // push token into token data
@@ -151,7 +153,8 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
 
           argData.replace(argData.begin() + argData.find_first_of(">"), argData.end(), ""); // delete everything after the tag closes to get just the args
 
-          for (int j = 0; j < argData.size(); j++){
+          for (int j = 0; j < argData.size(); j++)
+          {
             if (argData[j] == '=')
             { // we found an arg
               // get the name
@@ -162,18 +165,20 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
               tokens.push_back(t); // push the key
 
               t.data.replace(t.data.begin(), t.data.begin() + t.data.find_first_not_of(' '), "");
-              
+
               // get the value
               t = {value, argData};
               t.data.replace(t.data.begin(), t.data.begin() + j + 1, ""); // delete everything in front the value
-              
-              if (t.data[0] != '\"'){
+
+              if (t.data[0] != '\"')
+              {
                 if (t.data.find_first_of(' ') < t.data.size())                                  // if there's args after
                   t.data.replace(t.data.begin() + t.data.find_first_of(' '), t.data.end(), ""); // delete everything in bhind the value
               }
 
-              else{
-                if (t.data.find_first_of('\"', 1) < t.data.size())                                // if there's args after
+              else
+              {
+                if (t.data.find_first_of('\"', 1) < t.data.size())                                      // if there's args after
                   t.data.replace(t.data.begin() + t.data.find_first_of('\"', 1) + 1, t.data.end(), ""); // delete everything in bhind the value
               }
 
@@ -191,11 +196,13 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
           }
         }
 
-        else if (t.t != close || (t.t == close && !isVoid)){
+        else if (t.t != close || (t.t == close && !isVoid))
+        {
           tokens.push_back(t); // push token into token data
         }
 
-        if (isVoid){
+        if (isVoid)
+        {
           t.t = close;
           tokens.push_back(t);
         }
@@ -214,7 +221,8 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
       token t = {content, data};
       t.data.replace(t.data.begin(), t.data.begin() + i, ""); // replace up to the index
 
-      if (t.data.find_first_of('<') < t.data.size()){
+      if (t.data.find_first_of('<') < t.data.size())
+      {
         t.data.replace(t.data.begin() + t.data.find_first_of('<'), t.data.end(), ""); // replace after the tag open
 
         i += t.data.find_first_of('<') + t.data.size(); // set index to where next open tag is
@@ -228,9 +236,9 @@ std::vector<RSP::token> RSP::tokenizeXML(std::string data, format c){
   return tokens;
 }
 
-std::vector<RSP::token> RSP::tokenizeJSON(std::string data)
-{
+std::vector<RSP::token> RSP::tokenizeJSON(std::string data){
   std::vector<RSP::token> tokens;
+  int list = 0;
 
   for (int i = 0; i < data.size(); i++)
   {
@@ -261,15 +269,94 @@ std::vector<RSP::token> RSP::tokenizeJSON(std::string data)
         t.data.replace(t.data.begin() + t.data.find_first_of(','), t.data.end(), "");
       else
         t.data.replace(t.data.begin() + t.data.find_first_of('}'), t.data.end(), "");
-    
+
       t.data.replace(t.data.begin(), t.data.begin() + t.data.find_first_not_of(' '), "");
 
-      if (t.data.size() && t.data[0] != '{'){
+      if (t.data.size() && t.data[0] != '{' && t.data[0] != '[')
+      {
         tokens.push_back(t);
         i += t.data.size();
       }
       break;
     }
+    case '[': {
+        tokens.push_back({openList});
+        std::string lData = data;
+
+        lData.replace(lData.begin(), lData.begin() + i + 1, "");
+        
+        int list = 1;
+
+        for (i = i + 1; i < data.size() && list; i++){
+          if (data[i] == '[')
+            list++;
+          
+          else if (data[i] == ']')
+            list--;
+        }
+
+        i--;
+        list = 1;
+
+        for (int j = 0; j < lData.size(); j++){
+          lData.replace(lData.begin(), lData.begin() + lData.find_first_not_of(' '), "");
+          
+          token t = {value, lData};
+
+          char c = lData[0];
+
+          if (c == '[')
+            list++;
+
+          else if (c == ']')
+            list--;
+          
+          if (!list)
+            break;
+
+          if (c == '[' || c == '{'){
+            int embed = 1;
+            for (j = 1; j < lData.size() && embed; j++){
+              if (lData[j] == c){
+                embed++;
+              }
+              
+              if ((lData[j] == ']' && c == '[') || (lData[j] == '}' && c == '{'))
+                embed--;
+            }
+
+            t.data.replace(t.data.begin() + j, t.data.end(), "");
+            
+            lData.replace(lData.begin(), lData.begin() + t.data.size(), "");
+            lData.replace(lData.begin(), lData.begin() + lData.find_first_not_of(' '), "");    
+            
+            if (lData[0] == ',')
+              lData[0] = ' ';
+          }
+
+          else if (t.data.find_first_of(",") < t.data.size() && t.data.find_first_of(",") < t.data.find_first_of(']')){
+            t.data.replace(t.data.begin() + t.data.find_first_of(","), t.data.end(), "");
+
+            lData.replace(lData.begin(), lData.begin() + lData.find_first_of(",") + 1, "");
+          }
+          
+          else if (t.data.find_first_of(",") > t.data.find_first_of(']')){
+            t.data.replace(t.data.begin() + t.data.find_first_of("]"), t.data.end(), "");
+
+            lData.replace(lData.begin(), lData.begin() + lData.find_first_of("]"), "");         
+          }
+
+          tokens.push_back(t);
+        }
+      } 
+
+      if (data[i] == ']'){
+        tokens.push_back({closeList});
+        list--;
+      }
+
+      break;
+
     case '}':
       tokens.push_back({close});
       break;
@@ -279,89 +366,263 @@ std::vector<RSP::token> RSP::tokenizeJSON(std::string data)
   return tokens;
 }
 
+std::vector<RSP::token> RSP::tokenizeCSV(std::string data){
+  const std::string alph = "abcdefghijklmnopqrstuvwxyz";
+
+  std::string firstLine = data;
+
+  char s = ',';
+  
+  firstLine.replace(
+      firstLine.begin() + firstLine.find_first_of('\n'), 
+      firstLine.begin(), 
+      "");
+
+  if (firstLine.find(';') < firstLine.size())
+      s = ';';
+  else if (firstLine.find(',') > firstLine.size())
+    return {};
+
+  bool header = true;
+  int index = 0;
+  std::vector<std::string> keys;
+  
+  std::string json = "[";
+
+  for (int i = 0; i < data.size(); i++){
+    int gotdata = 1;
+    
+    if (data[i] == s){
+      if (header){
+          getKey:
+            std::string name = data;
+            name.replace(name.begin() + i, name.end(), "");
+            std::reverse(name.begin(), name.end());
+  
+            if (name.find_first_of(s) < name.size())
+              name.replace(name.begin() + name.find_first_of(s), name.end(), "");
+    
+            std::reverse(name.begin(), name.end());
+            
+            if (name[0] != '"'){
+                name.insert(name.begin(), '"');
+
+                name += '"';
+            }
+
+            keys.push_back(name);
+            
+            if (gotdata)
+              gotdata = 2;
+      }
+        
+      if (!index && !header)
+        json += "\n  {";   
+      
+      if (!header){
+        getdata: 
+          json += "\n      " + keys[index] + " : ";
+          std::string name = data;
+          name.replace(name.begin() + i, name.end(), "");
+          std::reverse(name.begin(), name.end());
+          if (index)
+              name.replace(name.begin() + name.find_first_of(s), name.end(), "");
+          else
+            name.replace(name.begin() + name.find_first_of('\n'), name.end(), "");
+  
+          std::reverse(name.begin(), name.end());
+
+          if (name[0] != '"'){
+            bool hasLetter = false; 
+            
+            for (auto& c : name)
+                if (alph.find(std::tolower(c)) < alph.size()){
+                    hasLetter = true;
+                    break;
+                }
+
+            if (hasLetter){
+                name.insert(name.begin(), '"');
+
+                name += '"';
+            }
+          }
+          
+          json += name;
+        
+          if (index < keys.size() - 1)
+            json += ",";
+
+          if (gotdata)
+            index++;
+          else
+            gotdata = 2;
+      }
+    }
+    
+    if (data[i] == '\n'){
+      if (!header){
+        if (gotdata == 1){
+          gotdata = 0;
+          goto getdata;
+        }
+        json += "\n  },\n";
+        index = 0;
+      }
+   
+      else{ 
+        if (gotdata == 1){
+          gotdata = 0;
+          goto getKey;
+        }
+
+        header = false;
+      }  
+    }
+  }
+
+  if (json.size() && json[json.size() - 2] == ',')
+    json.erase(json.size() - 2);
+
+  json += "\n]";
+
+  return tokenizeJSON(json);
+}
+
+RSP::data RSP::parseCSV(std::vector<RSP::token> tokens){ return parseJSON(tokens); }
+
 RSP::data RSP::parseJSON(std::vector<RSP::token> tokens){
   RSP::data index;
   std::vector<RSP::data> prev;
 
   std::string curArg;
 
+  int list = 0;
+
   for (auto &t : tokens){
-    switch (t.t){
-      case open:
+    switch (t.t)
+    {
+    case open:
+      if (!list) {
         index.push(curArg, "");
-        
+
         prev.push_back(index);
         index = index.next.back();
-        break;
-      case close:
-        if (prev.size()){
-          prev.back().next.back() = index;
+      }
+      break;
 
-          index = prev.back();
-          
-          prev.pop_back();
-        }
-        break;
-      case key:
-        curArg = t.data;
-        break;
-      case value:
+    case close:
+      if (prev.size() && !list) {
+        prev.back().next.back() = index;
+
+        index = prev.back();
+
+        prev.pop_back();
+      }
+      break;
+
+    case key:
+      curArg = t.data;
+      break;
+
+    case value:
+      std::reverse(t.data.begin(), t.data.end());
+      t.data.replace(t.data.begin(), t.data.begin() + t.data.find_first_not_of(' '), "");
+      std::reverse(t.data.begin(), t.data.end());
+
+      if (list == false)
         index.push(curArg, t.data);
-        break;
+      else {
+        if (t.data[0] == '{' || t.data[0] == '[') {
+          if (t.data[0] == '{')
+            index.list.push_back(loadS(t.data, JSON));
+          else if (t.data[0] == '['){
+            index.list.push_back({"", .list = loadS(t.data, JSON).list});
+          }
+        }
+        else
+          index.list.push_back({"", t.data});
+      }
+      break;
+
+    case openList:
+      list++;
+
+      index.push(curArg, "");
+      prev.push_back(index);
+      index = index.next.back();
+      break;
+
+    case closeList:
+      if (prev.size()) {
+        prev.back().next.back() = index;
+
+        index = prev.back();
+
+        prev.pop_back();
+      }
+
+      list--;
+      break;
     }
   }
-  
-  
-  return index[""];
+
+  if (index.next.size())
+    return index[""];
+  else{
+    printf("Failed to parse JSON tokens\n");
+    return {};
+  }
 }
 
-RSP::data RSP::parseXML(std::vector<RSP::token> tokens, RSP::format c){
+RSP::data RSP::parseXML(std::vector<RSP::token> tokens, RSP::format c) {
   RSP::data index;
   std::vector<RSP::data> prev;
 
   std::string curArg;
 
-  for (auto &t : tokens){
-    switch (t.t){
-      case open:
-        if (!index.key.empty()){
-          index.push(t.data, "");
-          
-          prev.push_back(index);
+  for (auto &t : tokens) {
+    switch (t.t)
+    {
+    case open:
+      if (!index.key.empty()) {
+        index.push(t.data, "");
 
-          index = index.next.back();
-        }
-        else 
-          index.key = t.data;
-        break;
-      case close:
-        if (prev.size()){
-          prev.back().next.back() = index;
+        prev.push_back(index);
 
-          index = prev.back();
+        index = index.next.back();
+      }
+      else
+        index.key = t.data;
+      break;
+    case close:
+      if (prev.size()) {
+        prev.back().next.back() = index;
 
-          prev.pop_back();
-        }
-        break;
-      case key:
-        t.data.replace(t.data.begin(), t.data.begin() + t.data.find_first_not_of(' '), "");
-        curArg = t.data;
+        index = prev.back();
 
-        break;
-      case value:
-        index.args.insert({curArg, t.data});
-        break;
-      case content:
-        index.value = t.data;
-        break;
+        prev.pop_back();
+      }
+      break;
+    case key:
+      t.data.replace(t.data.begin(), t.data.begin() + t.data.find_first_not_of(' '), "");
+      curArg = t.data;
+
+      break;
+    case value:
+      index.args.insert({curArg, t.data});
+      break;
+    case content:
+      index.value = t.data;
+      break;
     }
   }
-  
-  
+
   return index;
 }
 
-RSP::data RSP::loadF(std::string file, RSP::format c){
+RSP::data RSP::loadF(std::string file, RSP::format c)
+{
   FILE *f = fopen(file.c_str(), "r");
 
   fseek(f, 0L, SEEK_END);
@@ -379,11 +640,13 @@ RSP::data RSP::loadF(std::string file, RSP::format c){
   return loadS(fData);
 }
 
-RSP::data RSP::loadS(std::string data, RSP::format c)
-{
-  if (c == GUESS)
-  {
-    if (data.find_first_of('<') > data.find_first_of('{'))
+RSP::data RSP::loadS(std::string data, RSP::format c){
+  if (c == GUESS){
+    if ((data.find_first_of('<') > data.find_first_of(',') && data.find_first_of('{') > data.find_first_of(',')) ||
+        (data.find_first_of('<') > data.find_first_of(';') && data.find_first_of('{') > data.find_first_of(';')))
+      c = CSV;
+
+    else if (data.find_first_of('<') > data.find_first_of('{'))
       c = JSON;
 
     else if (data.find_first_of("html") < data.size())
@@ -394,15 +657,21 @@ RSP::data RSP::loadS(std::string data, RSP::format c)
       c = XML;
   }
 
+  while (data.find('\n') < data.size() && c != CSV)
+    data.replace(data.begin() + data.find('\n'), data.begin() + data.find('\n') + 1, "");
+
   if (c == SVG || c == XML || c == HTML)
     return parseXML(tokenizeXML(data, c), c);
-  else
+  else if (c == JSON)
     return parseJSON(tokenizeJSON(data));
+  else
+    return parseCSV(tokenizeCSV(data));
 }
 
-void RSP::writeF(std::string file, RSP::data d, RSP::format c){
-  std::string dStr = writeS(d, c);
-  
+void RSP::dumpF(std::string file, RSP::data d, RSP::format c)
+{
+  std::string dStr = dumpF(d, c);
+
   FILE *f = fopen(file.c_str(), "w+");
 
   fwrite(dStr.c_str(), 1, dStr.size(), f);
@@ -410,19 +679,23 @@ void RSP::writeF(std::string file, RSP::data d, RSP::format c){
   fclose(f);
 }
 
-void RSPjsonStr(RSP::data d, std::string& str){
+void RSPjsonStr(RSP::data d, std::string &str)
+{
   int i = 0;
 
-  for (auto& n : d.next){
+  for (auto &n : d.next)
+  {
     i++;
 
-    if (n.key[0] != '\"'){
+    if (n.key[0] != '\"')
+    {
       n.key.insert(n.key.begin(), '\"');
 
       n.key += "\"";
     }
-    
-    if (n.next.size()){
+
+    if (n.next.size())
+    {
       str += "\n\n" + n.key + " : " + " {";
       RSPjsonStr(n, str);
       str += "\n}";
@@ -436,19 +709,21 @@ void RSPjsonStr(RSP::data d, std::string& str){
   }
 }
 
-
-void RSPXMLStr(RSP::data d, std::string& str){
-  for (auto& n : d.next){
+void RSPXMLStr(RSP::data d, std::string &str)
+{
+  for (auto &n : d.next)
+  {
     str += "<" + n.key;
 
-    for (auto& a : n.args)
+    for (auto &a : n.args)
       str += " " + a.first + "=" + a.second;
 
     str += ">\n";
 
     str += n.value + "\n";
 
-    if (n.next.size()){
+    if (n.next.size())
+    {
       str += "\n";
       RSPXMLStr(n, str);
     }
@@ -457,17 +732,21 @@ void RSPXMLStr(RSP::data d, std::string& str){
   }
 }
 
-std::string RSP::writeS(RSP::data d, RSP::format c){
+std::string RSP::dumpF(RSP::data d, RSP::format c)
+{
   std::string output;
 
-  if (c == JSON){
+  if (c == JSON)
+  {
     output += "{";
     RSPjsonStr(d, output);
     output += "\n\n}";
   }
 
-  else if (c == HTML || c == XML || c == SVG){
-    output += "<!DOCTYPE " + (std::string)((c == HTML) ? "html" : (c == XML) ? "xml" : "svg") + ">\n";
+  else if (c == HTML || c == XML || c == SVG) {
+    output += "<!DOCTYPE " + (std::string)((c == HTML) ? "html" : (c == XML) ? "xml"
+                                                                             : "svg") +
+              ">\n";
 
     RSPXMLStr(d, output);
   }
