@@ -3,6 +3,5 @@
 - README documentation 
 - XML random contents 
 
-- csv support
-- YAML support
-- Markdown support
+- fix csv parsing
+- dump csv data
