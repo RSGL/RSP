@@ -18,10 +18,10 @@
 * 3. This notice may not be removed or altered from any source distribution.
 */
 
-#include <string>
-#include <vector>
-#include <map>
-#include <algorithm>
+#include <string> // std::string
+#include <vector> // std::vector
+#include <map> // std::map
+#include <algorithm> // algorithm functions, std::find, std::reverse, ect
 
 namespace RSP {
   enum format {
@@ -29,24 +29,26 @@ namespace RSP {
     HTML,
     SVG,
     JSON,
-    CSV,
-    GUESS
+    CSV_COMMA, // CSV using , as a divider
+    CSV_SEMI, // CSV using ; as a divider
+    CSV_GUESS, // CSV guess the divider
+    GUESS // Tell the function to guess what format the data is
   }; // format of data, or let the library guess what the proper format is
 
   enum tokenType {
-    open,
-    close,
-    openList,
-    closeList,
-    key,
-    value,
-    content
+    open, // open braces or tag
+    close, // close braces or tag
+    openList, // open list [
+    closeList, // close list ]
+    key, // JSON key, collumn name, argument name
+    value, // Value of key, value in list, value of argument
+    content // Content between tag open/close
   }; // token types for tokenizing
 
   struct token {
     tokenType t;                             // type
     std::string data;                        // data the token holds
-    std::map<std::string, std::string> args; // args
+    std::map<std::string, std::string> args; // args (XML)
   };                                         // token objects for tokenizing
 
   struct data {
@@ -67,7 +69,7 @@ namespace RSP {
     data &operator[](int index) { return list[index]; } // [] function for lists
   };                                                    // data format object (for user)
 
-  std::vector<std::string> voidTags;
+  std::vector<std::string> voidTags; // void tags (for HTML)
 
   data loadF(std::string file, format c = GUESS); // load data from file
   data loadS(std::string data, format c = GUESS); // load data from string
@@ -82,24 +84,26 @@ namespace RSP {
   std::vector<token> tokenizeJSON(std::string data); // tokenize json data
   data parseJSON(std::vector<token> tokens);         // parse json data
 
-  std::vector<token> tokenizeCSV(std::string data); // tokenize csv data
+  std::vector<token> tokenizeCSV(std::string data, format c = CSV_GUESS); // tokenize csv data
   data parseCSV(std::vector<token> tokens);         // parse csv data
 }
 
 #ifdef RSP_IMPLEMENTATION
 
-RSP::data out; // blank data obj to output in case of errors
+RSP::data error = {"RSP-ERROR"}; // error data obj to output in case of errors
 
 RSP::data &RSP::data::operator[](std::string key) {        // [] function source
   int i; // index
-  for (i = 0; i < next.size() && next[i].key != key; i++)
-    ; // find the index of the key
+  for (i = 0; i < next.size() && next[i].key != key; i++); // find the index of the key
 
-  if (next[i].key != key)
-  {                                                             // the key was not found
+  if (next[i].key != key) { // the key was not found
+    #ifndef RSP_QUIET_ERRORS    
     printf("RSP::data :: Key not found \"%s\"\n", key.c_str()); // print error
+    #endif
 
-    return out; // return blank obj
+    error.value = "Key not found"; // the actual error (for checking)
+
+    return error; // return blank obj
   }
 
   return next[i]; // return the srcs that holds the same key
@@ -366,22 +370,24 @@ std::vector<RSP::token> RSP::tokenizeJSON(std::string data){
   return tokens;
 }
 
-std::vector<RSP::token> RSP::tokenizeCSV(std::string data){
+std::vector<RSP::token> RSP::tokenizeCSV(std::string data, RSP::format c) {
   const std::string alph = "abcdefghijklmnopqrstuvwxyz";
 
-  std::string firstLine = data;
+  char s = (c == CSV_SEMI) ? ';' : ',';
+ 
+  if (c == CSV_SEMI){
+    std::string firstLine = data;
 
-  char s = ',';
-  
-  firstLine.replace(
-      firstLine.begin() + firstLine.find_first_of('\n'), 
-      firstLine.begin(), 
-      "");
+    firstLine.replace(
+        firstLine.begin() + firstLine.find_first_of('\n'), 
+        firstLine.begin(), 
+        "");
 
-  if (firstLine.find(';') < firstLine.size())
-      s = ';';
-  else if (firstLine.find(',') > firstLine.size())
-    return {};
+    if (firstLine.find(';') < firstLine.size())
+        s = ';';
+    else if (firstLine.find(',') > firstLine.size())
+      return {};
+  }
 
   bool header = true;
   int index = 0;
@@ -644,7 +650,7 @@ RSP::data RSP::loadS(std::string data, RSP::format c){
   if (c == GUESS){
     if ((data.find_first_of('<') > data.find_first_of(',') && data.find_first_of('{') > data.find_first_of(',')) ||
         (data.find_first_of('<') > data.find_first_of(';') && data.find_first_of('{') > data.find_first_of(';')))
-      c = CSV;
+      c = CSV_GUESS;
 
     else if (data.find_first_of('<') > data.find_first_of('{'))
       c = JSON;
@@ -657,7 +663,7 @@ RSP::data RSP::loadS(std::string data, RSP::format c){
       c = XML;
   }
 
-  while (data.find('\n') < data.size() && c != CSV)
+  while (data.find('\n') < data.size() && (c != CSV_COMMA && c != CSV_SEMI && c != CSV_GUESS))
     data.replace(data.begin() + data.find('\n'), data.begin() + data.find('\n') + 1, "");
 
   if (c == SVG || c == XML || c == HTML)
@@ -665,11 +671,10 @@ RSP::data RSP::loadS(std::string data, RSP::format c){
   else if (c == JSON)
     return parseJSON(tokenizeJSON(data));
   else
-    return parseCSV(tokenizeCSV(data));
+    return parseCSV(tokenizeCSV(data, c));
 }
 
-void RSP::dumpF(std::string file, RSP::data d, RSP::format c)
-{
+void RSP::dumpF(std::string file, RSP::data d, RSP::format c) {
   std::string dStr = dumpF(d, c);
 
   FILE *f = fopen(file.c_str(), "w+");
@@ -679,8 +684,7 @@ void RSP::dumpF(std::string file, RSP::data d, RSP::format c)
   fclose(f);
 }
 
-void RSPjsonStr(RSP::data d, std::string &str)
-{
+void RSPjsonStr(RSP::data d, std::string &str) {
   int i = 0;
 
   for (auto &n : d.next)
